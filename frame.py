@@ -1,3 +1,78 @@
+def hough_lines_detection(img, rho, theta, threshold, min_line_len, max_line_gap):
+    """
+    `img` should be the output of a Canny transform.
+    """
+    lines = cv2.HoughLinesP(img, rho, theta, threshold, np.array([]), minLineLength=min_line_len,
+                            maxLineGap=max_line_gap)
+    return lines
+
+
+def weighted_img(img, initial_img, α=0.8, β=1., λ=0.):
+    """
+    Returns resulting blend image computed as follows:
+    initial_img * α + img * β + λ
+    """
+    img = np.uint8(img)
+    if len(img.shape) is 2:
+        img = np.dstack((img, np.zeros_like(img), np.zeros_like(img)))
+
+    return cv2.addWeighted(initial_img, α, img, β, λ)
+
+
+def compute_lane_from_candidates(line_candidates, img_shape):
+    """
+    Compute lines that approximate the position of both road lanes.
+    :param line_candidates: lines from hough transform
+    :param img_shape: shape of image to which hough transform was applied
+    :return: lines that approximate left and right lane position
+    """
+
+    # separate candidate lines according to their slope
+    pos_lines = [l for l in line_candidates if l.slope > 0]
+    neg_lines = [l for l in line_candidates if l.slope < 0]
+
+    # interpolate biases and slopes to compute equation of line that approximates left lane
+    # median is employed to filter outliers
+    neg_bias = np.median([l.bias for l in neg_lines]).astype(int)
+    neg_slope = np.median([l.slope for l in neg_lines])
+    x1, y1 = 0, neg_bias
+    x2, y2 = -np.int32(np.round(neg_bias / neg_slope)), 0
+    left_lane = Line(x1, y1, x2, y2)
+
+    # interpolate biases and slopes to compute equation of line that approximates right lane
+    # median is employed to filter outliers
+    lane_right_bias = np.median([l.bias for l in pos_lines]).astype(int)
+    lane_right_slope = np.median([l.slope for l in pos_lines])
+    x1, y1 = 0, lane_right_bias
+    x2, y2 = np.int32(np.round((img_shape[0] - lane_right_bias) / lane_right_slope)), img_shape[0]
+    right_lane = Line(x1, y1, x2, y2)
+
+    return left_lane, right_lane
+def region_of_interest(img, vertices):
+    """
+    Applies an image mask.
+    Only keeps the region of the image defined by the polygon
+    formed from `vertices`. The rest of the image is set to black.
+    """
+
+    # defining a blank mask to start with
+    mask = np.zeros_like(img)
+
+    # defining a 3 channel or 1 channel color to fill the mask with depending on the input image
+    if len(img.shape) > 2:
+        channel_count = img.shape[2]  # i.e. 3 or 4 depending on your image
+        ignore_mask_color = (255,) * channel_count
+    else:
+        ignore_mask_color = 255
+
+    # filling pixels inside the polygon defined by "vertices" with the fill color
+    cv2.fillPoly(mask, vertices, ignore_mask_color)
+
+    # returning the image only where mask pixels are nonzero
+    masked_image = cv2.bitwise_and(img, mask)
+
+    return masked_image, mask
+
 def get_lane_lines(color_image, solid_lines=True):
     """
     This function take as input a color road frame and tries to infer the lane lines in the image.
